@@ -41,37 +41,37 @@ warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
 
 
 class LayerItem(QtGui.QStandardItem):
-    """Base class for layer items in a LayerSelectionModel.
+    """Base class for layer representing items in a LayerSelectionModel.
 
-    A layer item is checkable and holds a refference to its parent napari layer.
-    The displayed text of the item is bound to the parent layer name and updates
-    with it.
+    A LayerItem is checkable and holds a refference to its parent napari layer.
+    The DisplayRole holds the parent layer's name.
 
     Parameters
     ----------
-    layer : napari.layers.Image
+    layer : napari.layers.Layer
         Parent napari layer.
 
     Attributes
     ----------
-    _layer : napari.layers.Image
+    _layer : napari.layers.Layer
         Parent napari layer.
 
     Methods
     -------
     _theme_changed_callback(event=napari.utils.events.Event)
-        Change icon and foreground color upon theme change.
-    data(role=Qt.ItemDataRole)
+        Callback function that is called upon theme change.
+        Changes the icon and foreground color of the layer item.
+    data(role=Qt.ItemDataRole) -> Any
         Overload of the QStandardItem.data() method. The method adds functionality
         for the Qt.DisplayRole to display the name of the connected napari layer and
         to return additional data.
-    flags()
+    flags() -> Qt.ItemFlags
         Return item flags.
-    isChecked()
+    isChecked() -> bool
         Return True if check state is Qt.Checked, else False.
     """
 
-    def __init__(self, layer: napari.layers.Image, *args, **kwargs) -> None:
+    def __init__(self, layer: napari.layers.Layer, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._layer = layer
 
@@ -103,7 +103,7 @@ class LayerItem(QtGui.QStandardItem):
         self.setIcon(icon)
         self.setForeground(QtGui.QColor(theme.text.as_hex()))
 
-    def data(self, role: Optional[Qt.ItemDataRole] = Qt.DisplayRole) -> Any:
+    def data(self, role: Qt.ItemDataRole = Qt.DisplayRole) -> Any:
         """
         Return the data stored under role.
         """
@@ -473,12 +473,12 @@ class LayerSelectionModel(QtGui.QStandardItemModel):
     def __init__(
         self,
         napari_viewer: napari.Viewer,
-        agg_func: Callable,
+        agg_func: Optional[Callable] = None,
         parent: Optional[QtWidgets.QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._layer_list = napari_viewer.layers
-        self._agg_func = agg_func
+        self._agg_func = agg_func if agg_func is not None else np.mean
 
         self._init_data(self._layer_list)
         self._layer_list.events.connect(
