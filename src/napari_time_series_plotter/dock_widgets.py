@@ -4,7 +4,7 @@ This module contains the dock widgets of napari-time-series-plotter.
 from typing import Optional
 
 from napari import Viewer
-from qtpy import QtCore, QtWidgets
+from qtpy import QtWidgets
 
 from .models import LayerSelectionModel, TimeSeriesTableModel
 from .widgets import LayerSelector, OptionsManager, TimeSeriesMPLWidget
@@ -34,6 +34,13 @@ class TimeSeriesExplorer(QtWidgets.QWidget):
         Tree view on a LayerSelectionModel.
     plotter : napari_time_series_plotter.widgets.TimeSeriesMPLWidget
         Widget for time series plotting.
+
+    Methods
+    -------
+    _initUI()
+        Initialize UI widgets and set up layout.
+    _connect_callbacks()
+        Set up singal connections and callbacks.
     """
 
     def __init__(
@@ -41,9 +48,15 @@ class TimeSeriesExplorer(QtWidgets.QWidget):
     ) -> None:
         super().__init__(parent)
         self._napari_viewer = napari_viewer
+        self.model = LayerSelectionModel(napari_viewer)
 
         self._initUI()
-        self._setUpSignals()
+        self._connect_callbacks()
+
+        # set initial options for LayerSelectionModel.aggFunc
+        self.model.setAggFunc(
+            self.options.get_ls_options()["shape_aggergation_mode"]
+        )
 
     def _initUI(self) -> None:
         """
@@ -52,10 +65,6 @@ class TimeSeriesExplorer(QtWidgets.QWidget):
         # widgets
         self.tabs = QtWidgets.QTabWidget()
         self.options = OptionsManager()
-        self.model = LayerSelectionModel(
-            self._napari_viewer,
-            agg_func=self.options.get_ls_options()["shape_aggergation_mode"],
-        )
         self.selector = LayerSelector(self.model)
         self.plotter = TimeSeriesMPLWidget(
             self._napari_viewer, self.model, self.options.get_tp_options()
@@ -70,20 +79,23 @@ class TimeSeriesExplorer(QtWidgets.QWidget):
         layout.addWidget(self.selector)
         self.setLayout(layout)
 
-    def _setUpSignals(self):
+    def _connect_callbacks(self):
         """
         Set up signal connections.
         """
-        # update TimeSeriesMPLWidget upon option change.
-        self.options.plotter_option_changed.connect(
-            self.plotter.update_options
-        )
-        # update LayerSelector upon option change.
-        self.options.selector_option_changed.connect(
-            lambda options: self.selector.source_model.setAggFunc(
-                options["shape_aggergation_mode"]
-            )
-        )
+        connections = [
+            # update TimeSeriesMPLWidget upon option change.
+            self.options.plotter_option_changed.connect(
+                self.plotter.update_options
+            ),
+            # update LayerSelector upon option change.
+            self.options.selector_option_changed.connect(
+                lambda options: self.selector.source_model.setAggFunc(
+                    options["shape_aggergation_mode"]
+                )
+            ),
+        ]
+        return connections
 
 
 # TODO: add button tooltips
@@ -115,7 +127,7 @@ class TimeSeriesTableView(QtWidgets.QWidget):
     -------
     _initUI()
         Initialize UI widgets and set up layout.
-    _setUpSignals()
+    _connect_callbacks()
         Set up singal connections and callbacks.
     _loadData()
         Execute the model's update method.
@@ -124,8 +136,6 @@ class TimeSeriesTableView(QtWidgets.QWidget):
     _exportToCSV()
         Execute the model's toCSV method.
     """
-
-    dataChanged = QtCore.Signal()
 
     def __init__(
         self, napari_viewer: Viewer, parent: Optional[QtWidgets.QWidget] = None
@@ -141,7 +151,7 @@ class TimeSeriesTableView(QtWidgets.QWidget):
         self.model = TimeSeriesTableModel(source=self.source_model)
 
         self._initUI()
-        self._setUpSignals()
+        self._connect_callbacks()
 
     def _initUI(self) -> None:
         """
@@ -166,7 +176,7 @@ class TimeSeriesTableView(QtWidgets.QWidget):
         layout.addWidget(self.tableview)
         self.setLayout(layout)
 
-    def _setUpSignals(self) -> None:
+    def _connect_callbacks(self) -> None:
         """
         Set up singal connections and callbacks.
         """
