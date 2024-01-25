@@ -1,6 +1,7 @@
 """
 This module contains utility functions of napari-time-series-plotter.
 """
+from itertools import zip_longest
 from typing import (
     Any,
     Collection,
@@ -36,22 +37,33 @@ def to_world_space(data: npt.NDArray, layer: Any) -> npt.NDArray:
     """Transform layer point coordinates to viewer world space.
 
     Data array must contain the points in dim 0 and the
-    coordinates per dimension in dim 1.
+    coordinates per dimension in dim 1. The point ccordinates must
+    have the same dimensionality as the parent layer.
 
     Paramaeters
     -----------
     data : np.ndarray
         Point coordinates in an array.
-    layer
+    layer : subclass of napari.layers.Layer
         Parent layer.
 
     Returns
     -------
+    np.ndarray
         Transformed point coordinates in an array.
+
+    Raises
+    ------
+    ValueError
+        If the point coordinates have a different dimensionality
+        than the parent layer.
     """
     if data.size != 0:
-        idx = np.concatenate([[True], ~np.all(data[1:] == data[:-1], axis=-1)])
-        tdata = layer._transforms[1:].simplified(data[idx].copy())
+        if data.shape[1] != layer.ndim:
+            raise ValueError(
+                f"Point coordinates have different dimensionality: {data.shape[1]} than parent layer: {layer.ndim}."
+            )
+        tdata = layer._transforms[1:].simplified(data)
         return tdata
     return data
 
@@ -74,8 +86,20 @@ def to_layer_space(data, layer):
         Transformed point coordinates in an array.
     """
     if data.size != 0:
-        idx = np.concatenate([[True], ~np.all(data[1:] == data[:-1], axis=-1)])
-        tdata = layer._transforms[1:].simplified.inverse(data[idx].copy())
+        if data.shape[1] > layer.ndim:
+            tdata = layer._transforms[1:].simplified.inverse(
+                data[:, -layer.ndim :]
+            )
+        elif data.shape[1] < layer.ndim:
+            tdata = (
+                layer._transforms[1:]
+                .simplified.set_slice(
+                    range(layer.ndim - data.shape[1], layer.ndim)
+                )
+                .inverse(data)
+            )
+        else:
+            tdata = layer._transforms[1:].simplified.inverse(data)
         return tdata
     return data
 
@@ -97,20 +121,34 @@ def points_to_ts_indices(points: npt.NDArray, layer) -> List[Tuple[Any, ...]]:
     -------
     indices : tuple of np.ndarray
         Time series indices.
-    """
-    # ensure correct dimensionality
-    ndim = points.shape[1]
-    if ndim < layer.ndim - 1:
-        raise ValueError(
-            f"Dimensionality of position ({ndim}) must not be smaller then dimensionality of layer ({layer.ndim}) -1."
-        )
 
-    tpoints = np.floor(to_layer_space(points, layer)).astype(int)
-    if tpoints.size != 0:
+    Raises
+    ------
+    ValueError
+        If point dimensions are more than on d smaller than layer dimensions.
+    """
+    # Return empty list is points is empty
+    if points.size != 0:
+        # Ensure correct dimensionality
+        ndim = points.shape[1]
+        if ndim < layer.ndim - 1:
+            raise ValueError(
+                f"Point coordinates can have only one dimension less than layer. Ndim points where: {ndim}, ndim layer was: {layer.ndim}"
+            )
+        elif ndim == layer.ndim - 1:
+            spatial_idx = 0
+        else:
+            spatial_idx = layer.ndim - 1
+        tpoints = np.round(to_layer_space(points, layer)).astype(int)
         indices = [
-            (slice(None), *p[1:])
+            (slice(None), *p[-spatial_idx:])
             for p in tpoints
-            if all(0 <= i < d for i, d in zip(p, layer.data.shape))
+            if all(
+                0 <= i < d
+                for i, d in zip(
+                    p[-spatial_idx:], layer.data.shape[-spatial_idx:]
+                )
+            )
         ]
     else:
         indices = []
@@ -118,7 +156,10 @@ def points_to_ts_indices(points: npt.NDArray, layer) -> List[Tuple[Any, ...]]:
 
 
 def shape_to_ts_indices(
-    data: npt.NDArray, layer, ellipsis=False, filled=True
+    data: npt.NDArray,
+    layer: napari.layers.Image,
+    ellipsis: bool = False,
+    filled: bool = True,
 ) -> Tuple[Any, ...]:
     """Transform a shapes face or edges to time series indices for a given layer.
 
@@ -129,8 +170,12 @@ def shape_to_ts_indices(
     ----------
     data: npndarray
         Shape object data to transform into time series indices.
-    layer: subclass of napari.layer.Layers
-        Layer to generate time series index for.
+    layer: napari.layers.Image
+        Image layer to generate time series index for.
+    ellipsis: bool
+        If true triangulated ellipsis vertices and generate indices from them instead.
+    filled: bool
+        If true return indices for the filled shape, else only for the edges.
 
     Returns
     ------
@@ -138,19 +183,28 @@ def shape_to_ts_indices(
         Tuple with same number of allements as layer.ndim - 1. Each element is
         an array with the same number of elemnts (number of face voxels) encoding
         the face voxel positions.
+
+    Raises
+    ------
+    ValueError
+        If shape hase more than one dimension less than the target layer.
+    ValueError
+        If the shape is not y/x planar.
+    ValueError
+        If data is collinear.
     """
     # ensure correct dimensionality
     ndim = data.shape[1]
     if ndim < layer.ndim - 1:
         raise ValueError(
-            f"Dimensionality of the shape ({ndim}) must not be smaller then dimensionality of layer ({layer.ndim}) -1."
+            f"Shape must not have more than one dimension less than layer. Ndim shape was: {ndim}, ndim layer was: {layer.ndim} "
         )
 
-    tdata = to_layer_space(data, layer)
+    tdata = np.round(to_layer_space(data, layer)).astype(int)
+
+    # ensure shape is y/x planar
     if len(np.unique(tdata[:, :-2], axis=0)) == 1:
-        val = np.expand_dims(np.floor(tdata[0, 1:-2]).astype(int), axis=0)
-        if not all(0 <= v < d for v, d in zip(val, layer.data.shape[1:-2])):
-            return ()
+        val = np.expand_dims(np.round(tdata[0, 1:-2]).astype(int), axis=0)
     else:
         raise ValueError(
             "All vertices of a shape must be in a single y/x plane."
@@ -171,12 +225,23 @@ def shape_to_ts_indices(
             vertices[:, 0], vertices[:, 1], layer.data.shape[-2:]
         )
     else:
-        vertices = np.clip(vertices, 0, layer.data.shape[-2:] - 1)
-        indices = [line(*v1, *v2) for v1, v2 in zip(vertices, vertices[1:])]
+        vertices = np.round(
+            np.clip(vertices, 0, np.asarray(layer.data.shape[-2:]) - 1)
+        ).astype(int)
+        indices = [[], []]
+        for v1, v2 in zip_longest(
+            vertices, vertices[1:], fillvalue=vertices[0]
+        ):
+            y, x = line(*v1, *v2)
+            indices[0].extend(y[:-1])
+            indices[1].extend(x[:-1])
+
+    # drop duplicate indices
+    clean_indices = tuple(indices)  # tuple(np.unique(indices, axis=0))
 
     # expand indices to full dimensions
-    exp = tuple(np.repeat(val, len(indices[0]), axis=0).T)
-    ts_indices = (slice(None),) + exp + indices
+    exp = tuple(np.repeat(val, len(clean_indices[0]), axis=0).T)
+    ts_indices = (slice(None),) + exp + clean_indices
 
     return ts_indices
 

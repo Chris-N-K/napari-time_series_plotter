@@ -1,303 +1,278 @@
-from napari.layers import Image, Labels
+import napari
 import numpy as np
-import pandas as pd
 import pytest
 
-from pytestqt import qtbot
-from qtpy.QtCore import Qt, QModelIndex, QVariant, QItemSelectionModel
-from tempfile import TemporaryFile
-
-from ..widgets import VoxelPlotter
-from ..utils import *
-
-RANDOM_GENERATOR = np.random.default_rng(seed=121)
-
+from ..utils import (
+    align_value_length,
+    points_to_ts_indices,
+    shape_to_ts_indices,
+    to_layer_space,
+    to_world_space,
+)
 
 # fixtures
-@pytest.fixture
-def layer_list():
-    larr = np.zeros((10, 10, 10),dtype=int)
-    larr[1, 0:5, 0:5] = 1
-    return [
-        Image(data=np.random.randint(0, 100, (10, 10)), name='2D'),
-        Image(data=np.random.randint(0, 100, (10, 10, 10)), name='3D'),
-        Image(data=np.random.randint(0, 100, (10, 10, 10, 10)), name='4D'),
-        Image(data=np.random.randint(0, 100, (10, 10, 10, 3)), name='RGB4D'),
-        Labels(data=larr, name='L3D'),
-        Labels(data=np.expand_dims(larr, axis=0), name='L4D'),
-    ]
+# make numpy random seed fixed
+SEED = 123
+
+
+@pytest.fixture(autouse=True)
+def mock_random(monkeypatch: pytest.MonkeyPatch):
+    def stable_random(*args, **kwargs):
+        rs = np.random.RandomState(SEED)
+        return rs.random(*args, **kwargs)
+
+    def stable_randint(*args, **kwargs):
+        rs = np.random.RandomState(SEED)
+        return rs.randint(*args, **kwargs)
+
+    def stable_uniform(*args, **kwargs):
+        rs = np.random.RandomState(SEED)
+        return rs.uniform(*args, **kwargs)
+
+    monkeypatch.setattr("numpy.random.random", stable_random)
+    monkeypatch.setattr("numpy.random.randint", stable_randint)
+    monkeypatch.setattr("numpy.random.uniform", stable_uniform)
 
 
 @pytest.fixture
-def source():
-    class SourceMock():
-        data = dict(
-            Img1_ROI0=RANDOM_GENERATOR.integers(0, 100, (10))
-        )
-    yield SourceMock()
+def image_layer3d():
+    data = np.random.random((100, 100, 100))
+    layer = napari.layers.Image(data)
+    yield layer
 
 
 @pytest.fixture
-def dt_model(source):
-    dt_model = DataTableModel(source)
-    dt_model._data = pd.DataFrame(dict(t1=[1,2,3], t2=[4,5,6], t3=[7,8,9]))
-    return dt_model
+def points():
+    yield np.random.uniform(0, 115, (10, 4))
+
+
+@pytest.fixture
+def shape():
+    arr = np.empty((4, 4), dtype=np.float16)
+    arr[:, 0] = np.random.randint(0, 9)
+    arr[:, 1] = np.random.randint(0, 99)
+    nodes = sorted(np.random.uniform(0, 50, (4)))
+    arr[0, 2:] = nodes[1], nodes[0]
+    arr[1, 2:] = nodes[1], nodes[3]
+    arr[2, 2:] = nodes[2], nodes[3]
+    arr[3, 2:] = nodes[2], nodes[0]
+    yield arr
 
 
 # tests
-def test_get_valid_image_layers(layer_list):
-    assert all(
-        [layer.ndim >= 3 and layer._type_string == 'image' and not layer.rgb
-         for layer in get_valid_image_layers(layer_list)]
+def test_to_world_space_no_transformation(points, image_layer3d):
+    transf = to_world_space(points[:, -3:], image_layer3d)
+    assert isinstance(transf, np.ndarray)
+    assert np.array_equal(points[:, -3:], transf)
+    assert transf.dtype == np.float64
+
+
+def test_to_world_space_with_data_empty(image_layer3d):
+    coords = np.array([[]], dtype=np.int8)
+    transf = to_world_space(coords, image_layer3d)
+    assert np.array_equal(coords, transf)
+    assert transf.dtype == np.int8
+
+
+def test_to_world_space_transformation(points, image_layer3d):
+    t = np.random.uniform(-10, 10, (3))
+    image_layer3d.translate = t
+    s = np.random.uniform(0.1, 2, (3))
+    image_layer3d.scale = s
+    target = np.dot(points[:, -3:], np.diag(s)) + t
+
+    transf = to_world_space(points[:, -3:], image_layer3d)
+    assert np.allclose(target, transf)
+
+
+def test_to_world_space_dim_missmatch(points, image_layer3d):
+    t = np.random.uniform(-10, 10, (3))
+    image_layer3d.translate = t
+    s = np.random.uniform(0.1, 2, (3))
+    image_layer3d.scale = s
+    with pytest.raises(ValueError, match="different dimensionality"):
+        to_world_space(points, image_layer3d)
+    with pytest.raises(ValueError, match="different dimensionality"):
+        to_world_space(points[:, :2], image_layer3d)
+
+
+def test_to_layer_space_no_transformation(points, image_layer3d):
+    transf = to_layer_space(points[:, -3:], image_layer3d)
+    assert isinstance(transf, np.ndarray)
+    assert np.array_equal(points[:, -3:], transf)
+    assert transf.dtype == np.float64
+
+
+def test_to_layer_space_with_data_empty(image_layer3d):
+    coords = np.array([[]], dtype=np.int8)
+
+    transf = to_layer_space(coords, image_layer3d)
+    assert np.array_equal(coords, transf)
+    assert transf.dtype == np.int8
+
+
+def test_to_layer_space_transformation(points, image_layer3d):
+    t = np.random.uniform(-10, 10, (4))
+    image_layer3d.translate = t[-3:]
+    s = np.random.uniform(-2, 2, (4))
+    image_layer3d.scale = s[-3:]
+    target = np.dot(
+        points[:, -3:] - t[-3:],
+        np.linalg.inv(np.diag(s[-3:])),
     )
 
+    # Test with higher dim points
+    transf_higher = to_layer_space(points, image_layer3d)
+    assert np.allclose(target, transf_higher)
 
-def test_add_index_dim():
-    # mock data
-    arr1d = np.random.randint(0,100,(10))
-    arr1d_idx = np.arange(0, 10, 1)
-    arr1d_idx_scaled = np.copy(arr1d_idx) * 0.5
+    # Test with same dim points
+    transf_same = to_layer_space(points[:, -3:], image_layer3d)
+    assert np.allclose(target, transf_same)
 
-    res = add_index_dim(arr1d, scale=1)
-    assert np.all(res[0] == arr1d_idx)
-    assert np.all(res[1] == arr1d)
-
-    res = add_index_dim(arr1d, scale=0.5)
-    assert np.all(res[0] == arr1d_idx_scaled)
-    assert np.all(res[1] == arr1d)
+    # Test with lower dim points
+    transf_lower = to_layer_space(points[:, -2:], image_layer3d)
+    assert np.allclose(target[:, -2:], transf_lower)
 
 
-
-def test_extract_voxel_time_series(layer_list):
-    layer3d = layer_list[1]
-    layer4d = layer_list[2]
-
-    # mock cursor position
-    cursor_pos_1_3d = np.array([7.1, 2.9, 1.0])
-    cursor_pos_2_3d = np.array([-3.4, 5.0, 2.7])
-    cursor_pos_1_4d = np.array([3.2, 7.1, 2.9, 1.0])
-    cursor_pos_2_4d = np.array([3.1, -3.4, 5.0, 2.7])
-
-    # mock data
-    layer_data = layer3d.data[:, 3, 1].copy()
-    mock3d = np.zeros((2, layer_data.size))
-    mock3d[0] = np.arange(0, layer_data.size, 1)
-    mock3d[1] = layer_data 
-    layer_data = layer4d.data[:, 7, 3, 1].copy()
-    mock4d = np.zeros((2, layer_data.size))
-    mock4d[0] = np.arange(0, layer_data.size, 1) * 0.5
-    mock4d[1] = layer_data
+def test_points_to_ts_indices_empty_data(image_layer3d):
+    points = np.array([])
+    result = points_to_ts_indices(points, image_layer3d)
+    assert result == []
 
 
-    # extracted data should be equal mock data
-    idx_3d, vts_3d = extract_voxel_time_series(cursor_pos_1_3d, layer3d, xscale=1)
-    assert all([idx_3d == (7, 3, 1), np.all(vts_3d == mock3d)])
-    idx_4d, vts_4d = extract_voxel_time_series(cursor_pos_1_4d, layer4d, xscale=0.5)
-    assert all([idx_4d == (3, 7, 3, 1), np.all(vts_4d == mock4d)])
-
-    # cursor position outside of the array index should yield no data
-    idx_3d, vts_3d = extract_voxel_time_series(cursor_pos_2_3d, layer3d, xscale=1)
-    assert not vts_3d
-    idx_4d, vts_4d = extract_voxel_time_series(cursor_pos_2_4d, layer4d, xscale=1)
-    assert not vts_4d
+def test_points_to_ts_indices_invalid_dim(image_layer3d):
+    points = np.array([[1]])
+    with pytest.raises(
+        ValueError,
+        match="Point coordinates can have only one dimension less than layer.",
+    ):
+        points_to_ts_indices(points, image_layer3d)
 
 
-def test_extract_ROI_time_series(layer_list):
-    # set up parameters
-    current_step = (0, 1, 10, 10)
-    layer3d = layer_list[1]
-    layer4d = layer_list[2]
-    labels = layer_list[4].data[1,...]
-    empty_labels = np.zeros((10, 10), dtype=np.uint8)
-    idx_shape = 0
+def test_points_to_ts_indices(points, image_layer3d, monkeypatch):
+    # Test conversion of point coordinates to time series indices
+    def mock_func(points, layer):
+        return points
 
-    data_3d = layer3d.data[:, 0:5, 0:5].reshape(10, -1)
-    data_3d_mean = np.mean(data_3d, axis=1)
-    data_xaxis = np.arange(0, data_3d_mean.size, 1)
-    mock_ROI_time_series_3d_mean = np.zeros((2, data_3d_mean.size))
-    mock_ROI_time_series_3d_mean[0] = data_xaxis
-    mock_ROI_time_series_3d_mean[1] = data_3d_mean
+    monkeypatch.setattr(
+        "napari_time_series_plotter.utils.to_layer_space", mock_func
+    )
+    target_no_slice_smaller_dim = np.round(
+        [p for p in points[:, -2:] if max(p) < 100]
+    )[:, -2:]
+    target_no_slice = np.round(
+        [p for p in points[:, -3:] if max(p[1:]) < 100]
+    )[:, -2:]
 
-    data_3d_median = np.median(data_3d, axis=1)
-    mock_ROI_time_series_3d_median = np.zeros((2, data_3d_median.size))
-    mock_ROI_time_series_3d_median[0] = data_xaxis
-    mock_ROI_time_series_3d_median[1] = data_3d_median
+    # Test with points of one dim smaller
+    result = points_to_ts_indices(points[:, -2:], image_layer3d)
+    assert all(isinstance(p[0], slice) for p in result)
+    assert np.allclose(target_no_slice_smaller_dim, [p[1:] for p in result])
 
-    data_4d = layer4d.data[:, 1, 0:5, 0:5].reshape(10, -1)
-    data_4d_sum = np.sum(data_4d, axis=1)
-    mock_ROI_time_series_4d_sum = np.zeros((2, data_4d_sum.size))
-    mock_ROI_time_series_4d_sum[0] = data_xaxis
-    mock_ROI_time_series_4d_sum[1] = data_4d_sum
+    # test with points same dim
+    result = points_to_ts_indices(points[:, -3:], image_layer3d)
+    assert all(isinstance(p[0], slice) for p in result)
+    assert np.allclose(target_no_slice, [p[1:] for p in result])
 
-    data_4d_std = np.std(data_4d, axis=1)
-    mock_ROI_time_series_4d_std = np.zeros((2, data_4d_std.size))
-    mock_ROI_time_series_4d_std[0] = data_xaxis * 0.5
-    mock_ROI_time_series_4d_std[1] = data_4d_std
+    # test with points higher dim
+    result = points_to_ts_indices(points, image_layer3d)
+    assert all(isinstance(p[0], slice) for p in result)
+    assert np.allclose(target_no_slice, [p[1:] for p in result])
 
-    # mean of extracted ROI should be identical to mean of mock area
-    rts_3d = extract_ROI_time_series(current_step, layer3d, labels, idx_shape, 'Mean', xscale=1)
-    assert np.all(rts_3d == mock_ROI_time_series_3d_mean)
-    rts_3d = extract_ROI_time_series(current_step, layer3d, labels, idx_shape, 'Median', xscale=1)
-    assert np.all(rts_3d == mock_ROI_time_series_3d_median)
-    rts_3d = extract_ROI_time_series(current_step, layer4d, labels, idx_shape, 'Sum', xscale=1)
-    assert np.all(rts_3d == mock_ROI_time_series_4d_sum)
-    rts_4d = extract_ROI_time_series(current_step, layer4d, labels, idx_shape, 'Std', xscale=0.5)
-    assert np.all(rts_4d == mock_ROI_time_series_4d_std)
 
-    # shapes outside of image bounds should not yield any data
-    rts_3d = extract_ROI_time_series(current_step, layer3d, empty_labels, idx_shape, 'Mean', xscale=1)
-    assert not rts_3d
-    rts_4d = extract_ROI_time_series(current_step, layer4d, empty_labels, idx_shape, 'Mean', xscale=1)
-    assert not rts_4d
+def test_shape_to_ts_indices_invalid_dim(image_layer3d):
+    # Test for error raise upon shape with invalid dimensions
+    shape = np.array([[1]])
+    with pytest.raises(
+        ValueError,
+        match="Shape must not have more than one dimension less than layer.",
+    ):
+        shape_to_ts_indices(shape, image_layer3d)
+
+
+def test_shape_to_ts_indices_multi_plane(image_layer3d, monkeypatch):
+    # Test for error raise upon non uniplanar shape
+    def mock_func(points, layer):
+        return points
+
+    monkeypatch.setattr(
+        "napari_time_series_plotter.utils.to_layer_space", mock_func
+    )
+    shape = np.array([[1, 2, 3], [3, 2, 3]])
+    with pytest.raises(
+        ValueError,
+        match="All vertices of a shape must be in a single y/x plane.",
+    ):
+        shape_to_ts_indices(shape, image_layer3d)
+
+
+def test_shape_to_ts_indices(shape, image_layer3d, monkeypatch):
+    # Test conversion of shapes to time series indices
+    def mock_func(points, layer):
+        return points[:, -layer.ndim :]
+
+    monkeypatch.setattr(
+        "napari_time_series_plotter.utils.to_layer_space", mock_func
+    )
+    rshape = np.round(shape).astype(int)
+
+    # Tests with rectangles
+    rect_data = image_layer3d.data[
+        :, rshape[0, -2] : rshape[2, -2] + 1, rshape[0, -1] : rshape[2, -1] + 1
+    ]
+    # filled
+    rect_target = (
+        rect_data.flatten()
+    )  # np.reshape(rect_data, (100, rect_data[0].size))
+    result = shape_to_ts_indices(
+        shape, image_layer3d, ellipsis=False, filled=True
+    )
+    assert len(result) == image_layer3d.ndim
+    assert isinstance(result[0], slice)
+    assert np.allclose(
+        sorted(image_layer3d.data[result].flatten()), sorted(rect_target)
+    )
+    # unfilled
+    mask = np.ones_like(rect_data, dtype=bool)
+    mask[:, 1:-1, 1:-1] = 0
+    rect_edge_data = rect_data[mask]
+    result = shape_to_ts_indices(
+        shape, image_layer3d, ellipsis=False, filled=False
+    )
+    assert len(result) == image_layer3d.ndim
+    assert isinstance(result[0], slice)
+    assert np.allclose(
+        sorted(image_layer3d.data[result].flatten()), sorted(rect_edge_data)
+    )
+
+    # Test with ellipsis
+    # filled
+    # TODO: Add assertions similar to rect
+    result = shape_to_ts_indices(
+        shape, image_layer3d, ellipsis=True, filled=True
+    )
+    assert len(result) == image_layer3d.ndim
+    assert isinstance(result[0], slice)
+    # unfilled
+    # TODO: Add assertions similar to rect
+    result = shape_to_ts_indices(
+        shape, image_layer3d, ellipsis=True, filled=False
+    )
+    assert len(result) == image_layer3d.ndim
+    assert isinstance(result[0], slice)
 
 
 def test_align_value_length():
-    d = dict(
-        a=[1.,2.],
-        b=[1.,2.,3.],
-        c=[1.,2.,3.,4.,5.,6.],
-        d=[1.,2.,3.]
-    )
+    # Test all value lists are of equal length
+    d = {
+        "a": [1.0, 2.0],
+        "b": [1.0, 2.0, 3.0],
+        "c": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    }
     aligned_d = align_value_length(d)
-    assert all([len(val) == 6 for val in aligned_d.values()])
+    assert all(len(val) == 6 for val in aligned_d.values())
 
 
-def test_SelectorListItem(layer_list):
-    layer = layer_list[1]
-    item = SelectorListItem(layer)
-
-    # test init
-    assert item.text() == layer.name
-    assert item.isCheckable()
-    assert not item.checkState()
-    assert item.layer == layer
-
-    # test type method
-    assert item.type() == 1001
-
-    # test _layer_name_changed callback
-    layer.name = 'Test'
-    assert item.text() == 'Test'
-
-
-def test_SelectorListModel(layer_list):
-    items = [SelectorListItem(layer) for layer in layer_list[1:3]]
-    items[1].setCheckState(Qt.Checked)
-    model = SelectorListModel(items)
-
-    # test init
-    assert model.rowCount() == 2
-
-    # test get_checked
-    assert len(model.get_checked()) == 1
-    assert model.get_checked()[0].name == '4D'
-
-    # test get_item_idx_by_text
-    # match
-    matches = model.get_item_idx_by_text('4D')
-    assert matches
-    assert isinstance(matches, int)
-
-    # no match
-    matches = model.get_item_idx_by_text('')
-    assert not matches
-
-    # double match
-    items[0].setText('4D')
-    matches = model.get_item_idx_by_text('4D')
-    assert matches
-    assert isinstance(matches, list)
-    assert len(matches) == 2
-
-
-def test_DTM_update(source, qtbot):
-    dt_model = DataTableModel(source)
-
-    assert dt_model._data is None
-    with qtbot.waitSignal(dt_model.layoutChanged, timeout=100) as blocker:
-        assert dt_model.update()
-    assert np.array_equal(dt_model._data, pd.DataFrame.from_dict(source.data))
-
-
-def test_DTM_update_different_length(source, qtbot):
-    source.data['Img2_P1'] = RANDOM_GENERATOR.integers(0, 100, (15))
-    source_vals = [list(val) for val in source.data.values()]
-    ref_df = pd.DataFrame(
-        columns=source.data.keys(),
-        data=np.array([
-            source_vals[0] + [np.nan] * 5,
-            source_vals[1],
-        ]).T
-    )
-    dt_model = DataTableModel(source)
-
-    assert dt_model._data is None
-    with qtbot.waitSignal(dt_model.layoutChanged, timeout=100) as blocker:
-        assert dt_model.update()
-    assert np.array_equal(dt_model._data, ref_df, equal_nan=True)
-
-
-def test_DTM_data(dt_model):
-    assert dt_model.data(QModelIndex()) == QVariant()
-    assert dt_model.data((0,0), role=Qt.DisplayRole) == '1'
-    assert dt_model.data(dt_model.index(0,0), role=Qt.DisplayRole) == '1'
-    assert dt_model.data(dt_model.index(0,0), role=Qt.EditRole) == QVariant()
-
-
-def test_DTM_headerData(dt_model):
-    assert dt_model.headerData(0, Qt.Horizontal) == 't1'
-    assert dt_model.headerData(0, Qt.Vertical) == '0'
-    assert dt_model.headerData(0, Qt.Horizontal, role=Qt.EditRole) == QVariant()
-
-
-def test_DTM_rowCount(dt_model):
-    assert dt_model.rowCount()
-    assert dt_model.rowCount() == 3
-
-
-def test_DTM_columnCount(dt_model):
-    assert dt_model.columnCount()
-    assert dt_model.columnCount() == 3
-
-
-def test_DTM_selection_to_pandas_iloc(dt_model):
-    selection_model = QItemSelectionModel(dt_model)
-    idx = dt_model.index(0,0)
-    assert dt_model._selection_to_pandas_iloc(selection_model) is None
-
-    selection_model.select(idx, QItemSelectionModel.Select)
-    assert dt_model._selection_to_pandas_iloc(selection_model) == (slice(0,1), slice(0,1))
-
-    selection_model.select(idx, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
-    assert dt_model._selection_to_pandas_iloc(selection_model) == ([0], slice(None))
-
-    selection_model.select(idx, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Columns)
-    assert dt_model._selection_to_pandas_iloc(selection_model) == (slice(None), [0])
-
-
-def test_DTM_toClipboard(dt_model):
-    selection_model = QItemSelectionModel(dt_model)
-
-    selection_model.select(dt_model.index(0,0), QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
-    dt_model.toClipboard(selection_model)
-    assert pd.read_clipboard().compare(dt_model._data.loc[:0]).empty
-
-    selection_model.select(QModelIndex(), QItemSelectionModel.Clear)
-    dt_model.toClipboard(selection_model)
-    assert pd.read_clipboard().compare(dt_model._data).empty
-
-
-def test_DTM_toCSV(dt_model):
-    selection_model = QItemSelectionModel(dt_model)
-
-    with TemporaryFile() as file:
-        selection_model.select(dt_model.index(0,0), QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
-        dt_model.toCSV(file, selection_model)
-        file.seek(0)
-        assert pd.read_csv(file, index_col=0).compare(dt_model._data.loc[:0]).empty
-
-    with TemporaryFile() as file:
-        selection_model.select(QModelIndex(), QItemSelectionModel.Clear)
-        dt_model.toCSV(file, selection_model)
-        file.seek(0)
-        assert pd.read_csv(file, index_col=0).compare(dt_model._data).empty
+def test_viewitemdelegate():
+    # TODO: Add tests for ViewItemDelegate
+    pass
