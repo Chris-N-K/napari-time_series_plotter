@@ -3,6 +3,7 @@ This module contains the dock widgets of napari-time-series-plotter.
 """
 from typing import Optional
 
+import numpy as np
 from napari import Viewer
 from qtpy import QtWidgets
 
@@ -48,15 +49,10 @@ class TimeSeriesExplorer(QtWidgets.QWidget):
     ) -> None:
         super().__init__(parent)
         self._napari_viewer = napari_viewer
-        self.model = LayerSelectionModel(napari_viewer)
+        self.model = LayerSelectionModel(napari_viewer, agg_func=np.mean)
 
         self._initUI()
         self._connect_callbacks()
-
-        # set initial options for LayerSelectionModel.aggFunc
-        self.model.setAggFunc(
-            self.options.get_ls_options()["shape_aggergation_mode"]
-        )
 
     def _initUI(self) -> None:
         """
@@ -79,6 +75,8 @@ class TimeSeriesExplorer(QtWidgets.QWidget):
         layout.addWidget(self.selector)
         self.setLayout(layout)
 
+    # TODO: move connections from here to the respective classes
+    # -> add an argument for the OptionManager instance
     def _connect_callbacks(self):
         """
         Set up signal connections.

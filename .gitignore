@@ -86,3 +86,6 @@ venv/
 # plugin dev tests
 run_plugin.py
 run_callback_test.py
+
+logo.svg
+*legacy*
