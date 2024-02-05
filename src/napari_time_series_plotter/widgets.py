@@ -173,7 +173,7 @@ class TimeSeriesMPLWidget(BaseNapariMPLWidget):
         """
         Clear the canvas and show info text.
         """
-        with mplstyle.context(self.mpl_style_sheet_path):
+        with mplstyle.context(self.napari_theme_style_sheet):
             self.axes.clear()
             self._info_text = self.axes.annotate(
                 "Select source (image) and selection layers (points, shapes)\nto plot time series or\nmove the mouse over the viewer while holding 'shift'\nto live plot selected source layers.",
