@@ -5,15 +5,14 @@ from typing import (
     Any,
     Dict,
     Optional,
-    Union,
 )
 
 import matplotlib.style as mplstyle
 import napari
 import numpy as np
 from matplotlib.lines import Line2D
-from matplotlib.text import Annotation
 from napari_matplotlib.base import BaseNapariMPLWidget
+from numpy.typing import NDArray
 from qtpy import QtCore, QtWidgets
 
 from .models import ItemTypeFilterProxyModel, LayerSelectionModel
@@ -128,7 +127,7 @@ class TimeSeriesMPLWidget(BaseNapariMPLWidget):
         super().__init__(napari_viewer=napari_viewer, parent=parent)
         self._model = model
         self._plots: Dict[str, Line2D] = {}
-        self._info_text: Union[None, Annotation] = None
+        self._info_text: bool = False
 
         self.add_single_axes()
         if options:
@@ -141,143 +140,141 @@ class TimeSeriesMPLWidget(BaseNapariMPLWidget):
             self.y_axis_bounds = (None, None)
             self.truncate_plot_labels = False
             self.x_axis_scaling_factor = 1.0
-            self.draw()
+            self._draw()
 
-        self._model.dataChanged.connect(self._draw)
+        self._model.dataChanged.connect(lambda event: self._draw())
 
-    def _on_napari_theme_changed(self) -> None:
+    def _on_napari_theme_changed(self, event) -> None:
         """Update MPL toolbar and redraw canvas when `napari.Viewer.theme` is changed.
 
         At the moment only handle the default 'light' and 'dark' napari themes are handled.
         """
-        super()._on_napari_theme_changed()
-        self.draw()
+        super()._on_napari_theme_changed(event)
+        self._draw()
 
-    def _draw(self, *args) -> None:
+    def _draw(self) -> None:
         """
-        Wrapper for events with return values to trigger the self.draw().
+        If _model contains time series data draw it as line graph otherwise draw info text.
         """
-        self.draw()
+        with mplstyle.context(self.napari_theme_style_sheet):
+            data = self._model.tsData
+            if data:
+                # remove info text
+                if self._info_text:
+                    self.clear()
+                    self._info_text = False
 
-    @property
-    def textcolor(self) -> str:
-        """
-        Color for annotation text as hex code.
-        """
-        return napari.utils.theme.get_theme(
-            self.viewer.theme,
-            as_dict=False,
-        ).text.as_hex()
+                self.draw(data)
+            else:
+                # if no ts data clear plot dict and show info text in canvas
+                self._plots = {}
+                self.clear()
+                self._info_text = True
+
+                # show info text
+                self.axes.annotate(
+                    "Select source (image) and selection layers (points, shapes)\nto plot time series or\nmove the mouse over the viewer while holding 'shift'\nto live plot selected source layers.",
+                    (0.5, 0.5),
+                    ha="center",
+                    va="center",
+                    size=12,
+                )
+                self.axes.tick_params(
+                    bottom=False,
+                    top=False,
+                    labelbottom=False,
+                    left=False,
+                    right=False,
+                    labelleft=False,
+                )
+                self.canvas.draw()
 
     def clear(self) -> None:
         """
-        Clear the canvas and show info text.
+        Clear the axes.
         """
         with mplstyle.context(self.napari_theme_style_sheet):
             self.axes.clear()
-            self._info_text = self.axes.annotate(
-                "Select source (image) and selection layers (points, shapes)\nto plot time series or\nmove the mouse over the viewer while holding 'shift'\nto live plot selected source layers.",
-                (0.5, 0.5),
-                ha="center",
-                va="center",
-                size=12,
-                color=self.textcolor,
-            )
-            self.axes.tick_params(
-                axis="both",  # changes apply to both axes
-                which="both",  # both major and minor ticks are affected
-                bottom=False,  # ticks along the bottom edge are off
-                top=False,  # ticks along the top edge are off
-                labelbottom=False,
-                left=False,
-                right=False,
-                labelleft=False,
-            )
-            self.figure.tight_layout()
-            self.canvas.draw_idle()
 
-    def draw(self) -> None:
-        """Draw time series plots  or info text on the canvas.
+    def draw(self, data: Dict[str, NDArray]) -> None:
+        """Draw time series as line graph.
 
-        The ts data provided through self._model is plotted as line graphs. If the model
-        does not provide any ts data an info text is plotted instead.
-        The generated line graphs are stored under in a dictionary self._plots with
+        The generated line graphs are stored in the dictionary self._plots with
         the ts identifiers as keys. If the identifiers or data in the ts data differ from
         the identifiers or data in self._plots only the involved line plots are upated.
+
+        Parameters
+        ----------
+        data : Dict of str and array
+            Dictionary containing time series identfiers as keys and time series data as values.
         """
-        data = self._model.tsData
-        if data:
-            # compare plot and data keys to know which plots to modify, remove or add
-            plot_keys = set(self._plots)
-            data_keys = set(data)
-            to_check = plot_keys & data_keys
-            to_remove = plot_keys.difference(data_keys)
-            to_add = data_keys.difference(plot_keys)
+        # compare plot and data keys to know which plots to modify, remove or add
+        plot_keys = set(self._plots)
+        data_keys = set(data)
+        to_check = plot_keys & data_keys
+        to_remove = plot_keys.difference(data_keys)
+        to_add = data_keys.difference(plot_keys)
 
-            # for consistent keys check if the data changed
-            for key in to_check:
-                plot = self._plots[key]
-                ts = data[key]
-                px, py = plot.get_data()
-                if self.truncate_plot_labels and not key.startswith(
-                    "LivePlot"
-                ):
-                    label = f"{key[:11]}...{key[-8:]}"
-                else:
-                    label = key
-                plot.set_label(label)
-                if ~np.array_equal(py, ts):
-                    plot.set_data(px, ts)
+        # for consistent keys check if the data changed
+        for key in to_check:
+            plot = self._plots[key]
+            ts = data[key]
+            px, py = plot.get_data()
+            if self.truncate_plot_labels and not key.startswith("LivePlot"):
+                label = f"{key[:11]}...{key[-8:]}"
+            else:
+                label = key
+            plot.set_label(label)
+            if ~np.array_equal(py, ts):
+                plot.set_data(px, ts)
 
-            # remove graphs and plot entry if the ts data no longer excists
-            for key in to_remove:
-                self._plots.pop(key).remove()
+        # remove graphs and plot entry if the ts data no longer excists
+        for key in to_remove:
+            self._plots.pop(key).remove()
 
-            # add a graph for new ts data
-            for key in to_add:
-                if self.truncate_plot_labels and not key.startswith(
-                    "LivePlot"
-                ):
-                    label = f"{key[:11]}...{key[-8:]}"
-                else:
-                    label = key
-                self._plots[key] = self.axes.plot(data[key], label=label)[0]
+        # add a graph for new ts data
+        for key in to_add:
+            if self.truncate_plot_labels and not key.startswith("LivePlot"):
+                label = f"{key[:11]}...{key[-8:]}"
+            else:
+                label = key
+            self._plots[key] = self.axes.plot(data[key], label=label)[0]
 
-            # set axe options
-            if self.figure_title:
-                self.axes.set_title(self.figure_title)
-            self.axes.tick_params(
-                axis="both",  # changes apply to both axes
-                which="both",  # both major and minor ticks are affected
-                bottom=True,  # ticks along the bottom edge are off
-                top=False,  # ticks along the top edge are off
-                labelbottom=True,
-                left=True,
-                right=False,
-                labelleft=True,
-            )
-            self.axes.set_xlabel(self.x_axis_label)
-            self.axes.set_ylabel(self.y_axis_label)
+        # set title
+        if self.figure_title:
+            self.axes.set_title(self.figure_title)
 
-            self.axes.legend(
-                loc="upper right",
-            ).set_draggable(True)
+        # set axes
+        self.axes.relim()
+        self.axes.autoscale_view(tight=False, scalex=True, scaley=True)
+        self.axes.set_xbound(*self.x_axis_bounds)
+        self.axes.set_ybound(*self.y_axis_bounds)
+        self.axes.set_xlabel(
+            self.x_axis_label,
+            color=self.napari_theme_style_sheet["text.color"],
+        )
+        self.axes.set_ylabel(
+            self.y_axis_label,
+            color=self.napari_theme_style_sheet["text.color"],
+        )
+        self.axes.tick_params(
+            color=self.napari_theme_style_sheet["xtick.color"],
+            labelcolor=self.napari_theme_style_sheet["xtick.labelcolor"],
+            bottom=True,
+            top=False,
+            labelbottom=True,
+            left=True,
+            right=False,
+            labelleft=True,
+        )
 
-            self.axes.relim()
-            self.axes.autoscale_view(tight=False, scalex=True, scaley=True)
-            self.axes.set_xbound(*self.x_axis_bounds)
-            self.axes.set_ybound(*self.y_axis_bounds)
+        # set legend
+        self.axes.legend(
+            loc="upper right",
+        ).set_draggable(True)
 
-            # remove info text
-            if self._info_text is not None:
-                self._info_text = self._info_text.remove()
-
-            self.figure.tight_layout()
-            self.canvas.draw_idle()
-        else:
-            # if no ts data clear plot dict and show info text in canvas
-            self._plots = {}
-            self.clear()
+        # draw only changed objects
+        self.canvas.draw_idle()
 
     def update_options(self, options_dict: Dict[str, Any]) -> None:
         """Update attributes based on input and redraw plot.
@@ -294,7 +291,7 @@ class TimeSeriesMPLWidget(BaseNapariMPLWidget):
         self.y_axis_bounds = options_dict["y_axis_bounds"]
         self.truncate_plot_labels = options_dict["truncate_plot_labels"]
         self.x_axis_scaling_factor = options_dict["x_axis_scaling_factor"]
-        self.draw()
+        self._draw()
 
 
 class OptionsManager(QtWidgets.QWidget):
