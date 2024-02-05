@@ -1,16 +1,16 @@
-# napari-time_series_plotter
+# napari-time-series-plotter
 
-[![License](https://img.shields.io/pypi/l/napari-time_series_plotter.svg?color=green)](https://github.com/ch-n/napari-time_series_plotter/raw/main/LICENSE)
-[![Python Version](https://img.shields.io/pypi/pyversions/napari-time_series_plotter.svg?color=green)](https://python.org)
-[![PyPI](https://img.shields.io/pypi/v/napari-time_series_plotter.svg?color=blue)](https://pypi.org/project/napari-time_series_plotter)
+[![License](https://img.shields.io/pypi/l/napari-time-series-plotter.svg?color=green)](https://github.com/ch-n/napari-time-series-plotter/raw/main/LICENSE)
+[![Python Version](https://img.shields.io/pypi/pyversions/napari-time-series-plotter.svg?color=green)](https://python.org)
+[![PyPI](https://img.shields.io/pypi/v/napari-time-series-plotter.svg?color=blue)](https://pypi.org/project/napari-time-series-plotter)
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/napari-time-series-plotter/badges/version.svg)](https://anaconda.org/conda-forge/napari-time-series-plotter)
 [![napari hub](https://img.shields.io/endpoint?url=https://api.napari-hub.org/shields/napari-time-series-plotter)](https://napari-hub.org/plugins/napari-time-series-plotter)
-[![tests](https://github.com/ch-n/napari-time_series_plotter/workflows/tests/badge.svg)](https://github.com/ch-n/napari-time_series_plotter/actions)
-[![codecov](https://codecov.io/gh/Chris-N-K/napari-time_series_plotter/branch/main/graph/badge.svg?token=tv1tQj7JPH)](https://codecov.io/gh/Chris-N-K/napari-time_series_plotter)
+[![tests](https://github.com/ch-n/napari-time-series-plotter/workflows/tests/badge.svg)](https://github.com/ch-n/napari-time-series-plotter/actions)
+[![codecov](https://codecov.io/gh/Chris-N-K/napari-time-series-plotter/branch/main/graph/badge.svg?token=tv1tQj7JPH)](https://codecov.io/gh/Chris-N-K/napari-time-series-plotter)
 
 
 ## Description
-Napari-time_series_plotter (TSP) is a plugin for the `napari` ndimensional image viewer. 
+Napari-time-series-plotter (TSP) is a plugin for the `napari` ndimensional image viewer.
 
 **TSP** adds live plotting of time-resolved images to napari. You can select and visualize pixel/voxel or ROI mean values from one or multiple image layers as intensity-over-time line plots (The first image dimension is handled as time) and save the figures or the underlying time series data as CSV file. TSP supports 3D to nD images (3D: t+2D, nD: t+nD).
 
@@ -32,8 +32,8 @@ You can either install the latest version via pip or conda.
 
     pip install napari-time-series-plotter
 
-or download the packaged `tar.gz` file from the release assets and install it with 
-    
+or download the packaged `tar.gz` file from the release assets and install it with
+
     pip install /path/to/file.tar.gz
 
 **conda:**
@@ -50,13 +50,13 @@ To install the latest development version install directly from the relevant Git
 ## Usage
 ### Basics and Live plotting
 
-[TSP_basic_and_voxel_plotting_demo.webm](https://github.com/Chris-N-K/napari-time_series_plotter/assets/56394171/89b12967-5cef-4645-9b68-1a13ea740be5)
-    
+[TSP_basic_and_voxel_plotting_demo.webm](https://github.com/Chris-N-K/napari-time-series-plotter/assets/56394171/89b12967-5cef-4645-9b68-1a13ea740be5)
+
 1. Select the `TSPExplorer` widget in the `Plugins` tab of the napari viewer
 2. Use the `LayerSelector` to choose the image layers you want to source for plotting
 3. Move the corsor over the layer while holding "Shift"
 
-The `Options` tab offers multiple options to customize your plot. 
+The `Options` tab offers multiple options to customize your plot.
 - Set custom title or axe labels
 - Switch between autoscaling and manually defined max and min values of the axes
 - Switch to label truncation in the options tab if your layer names are too long for the figure legend (set max length manually)
@@ -66,7 +66,7 @@ The plot can be modified and saved through its toolbar above.
 
 ### Plotting ROIs
 
-[TSP_ROI_plotting_demo.webm](https://github.com/Chris-N-K/napari-time_series_plotter/assets/56394171/b4ce7e20-21d8-407c-8b3b-739a9385350d)
+[TSP_ROI_plotting_demo.webm](https://github.com/Chris-N-K/napari-time-series-plotter/assets/56394171/b4ce7e20-21d8-407c-8b3b-739a9385350d)
 
 1. Select the Shapes plotting mode via the `Options` tab (Voxel mode is the default).
 2. Use the `LayerSelector` to choose the image layers you want to source for plotting.
@@ -78,7 +78,7 @@ The plot can be modified and saved through its toolbar above.
 
 ### Plotting multiple Points
 
-[TSP_Points_plotting_demo.webm](https://github.com/Chris-N-K/napari-time_series_plotter/assets/56394171/a4f5ede5-8146-40a6-9629-c737aad2daef)
+[TSP_Points_plotting_demo.webm](https://github.com/Chris-N-K/napari-time-series-plotter/assets/56394171/a4f5ede5-8146-40a6-9629-c737aad2daef)
 
 1. Select the Shapes plotting mode via the `Options` tab (Voxel mode is the default).
 2. Use the `LayerSelector` to choose the image layers you want to source for plotting.
@@ -88,7 +88,7 @@ The plot can be modified and saved through its toolbar above.
 
 ### View time series as table
 
-[TSP_Inspector_demo.webm](https://github.com/Chris-N-K/napari-time_series_plotter/assets/56394171/f5a2e7fc-0d33-4f70-a2e9-2bbf959354c6)
+[TSP_Inspector_demo.webm](https://github.com/Chris-N-K/napari-time-series-plotter/assets/56394171/f5a2e7fc-0d33-4f70-a2e9-2bbf959354c6)
 
 1. Select the `TSPInspector` widget in the `Plugins` tab of the napari viewer
 2. Press the load from plot button to load the currently displayed plots into the `Inspector`
@@ -99,11 +99,11 @@ You can copy the whole table or a selection to your clipboard or export it to CS
 - [ ] Add Sphinx documentation
 
 ## Version 0.1.0 Milestones
-- [X] Update to napari-plugin-engine2 [#5](https://github.com/ch-n/napari-time_series_plotter/issues/5)
-- [X] Update widget GUI [#6](https://github.com/ch-n/napari-time_series_plotter/issues/6)
-- [x] Add widget to save pixel/voxel time series to file [#7](https://github.com/ch-n/napari-time_series_plotter/issues/7)
-- [X] Add ROI and multi-voxel plotting [#14](https://github.com/ch-n/napari-time_series_plotter/issues/14)
-- [ ] Evaluate and close remaining issues ([#22](https://github.com/ch-n/napari-time_series_plotter/issues/22), [#25](https://github.com/ch-n/napari-time_series_plotter/issues/25),)
+- [X] Update to napari-plugin-engine2 [#5](https://github.com/ch-n/napari-time-series-plotter/issues/5)
+- [X] Update widget GUI [#6](https://github.com/ch-n/napari-time-series-plotter/issues/6)
+- [x] Add widget to save pixel/voxel time series to file [#7](https://github.com/ch-n/napari-time-series-plotter/issues/7)
+- [X] Add ROI and multi-voxel plotting [#14](https://github.com/ch-n/napari-time-series-plotter/issues/14)
+- [ ] Evaluate and close remaining issues ([#22](https://github.com/ch-n/napari-time-series-plotter/issues/22), [#25](https://github.com/ch-n/napari-time-series-plotter/issues/25),)
 
 ## Contributing
 
@@ -113,7 +113,7 @@ the coverage at least stays the same before you submit a pull request.
 ## License
 
 Distributed under the terms of the [BSD-3] license,
-"napari-time_series_plotter" is free and open-source software
+"napari-time-series-plotter" is free and open-source software
 
 ## Issues
 
@@ -142,7 +142,7 @@ Images used in the demo gif were taken from [The Cancer Imaging Archive] <br>
 [Mozilla Public License 2.0]: https://www.mozilla.org/media/MPL/2.0/index.txt
 [cookiecutter-napari-plugin]: https://github.com/napari/cookiecutter-napari-plugin
 
-[file an issue]: https://github.com/ch-n/napari-time_series_plotter/issues
+[file an issue]: https://github.com/ch-n/napari-time-series-plotter/issues
 
 [napari]: https://github.com/napari/napari
 [tox]: https://tox.readthedocs.io/en/latest/
