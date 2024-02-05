@@ -76,7 +76,7 @@ class LayerItem(QtGui.QStandardItem):
         self._layer = layer
 
         theme = napari.utils.theme.get_theme(
-            napari.current_viewer().theme, as_dict=False
+            napari.settings.get_settings().appearance.theme, as_dict=False
         )
         icon = QtGui.QIcon()
         icon.addFile(
@@ -87,9 +87,14 @@ class LayerItem(QtGui.QStandardItem):
         self.setEditable(False)
         self.setCheckable(True)
 
-        napari.current_viewer().events.theme.connect(
-            self._theme_changed_callback
-        )
+        viewer = napari.current_viewer()
+        if viewer:
+            viewer.events.theme.connect(self._theme_changed_callback)
+        else:
+            warnings.warn(
+                "Item initialized without viewer. Viewer Theme changes will not trigger item theme changes.",
+                stacklevel=1,
+            )
 
     def _theme_changed_callback(self, event: napari.utils.events.Event):
         """
