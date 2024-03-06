@@ -107,8 +107,11 @@ def to_layer_space(data, layer):
 def points_to_ts_indices(points: npt.NDArray, layer) -> List[Tuple[Any, ...]]:
     """Transform point coordinates to time series indices for a given layer.
 
-    Points must be maximal one dimension smaller than the target layer.
-    The indices will always be one dimension (t) smaller than the target layer.
+    Points can be one dimension smaller than the target layer, because
+    the indices will always include the complete first dimension (t).
+    Points more than one dimension smaller will cause an error.
+    If the points are of higher dimensinality than the target layer the
+    additional dimensions are dropped.
 
     Parameters
     ----------
@@ -119,7 +122,7 @@ def points_to_ts_indices(points: npt.NDArray, layer) -> List[Tuple[Any, ...]]:
 
     Returns
     -------
-    indices : tuple of np.ndarray
+    indices : list of indice tuples
         Time series indices.
 
     Raises
