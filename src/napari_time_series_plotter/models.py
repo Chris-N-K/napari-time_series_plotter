@@ -221,9 +221,9 @@ class SelectionLayerItem(LayerItem):
         Tuple of time series indices, one array per parent layer item.
     _ts_data : np.ndarray
         Array of time series data, rows time points, columns per indice array.
-    _pl_ec : callable
+    _layer_ec : callable
         Parent layer data event callback connection.
-    _pil_ec : callable
+    _parent_layer_ec : callable
         Parent item layer data event callback connection.
 
     Methods
@@ -261,18 +261,18 @@ class SelectionLayerItem(LayerItem):
         super().__init__(layer, *args, **kwargs)
         if layer._type_string not in ["points", "shapes"]:
             raise ValueError(
-                f"layer must be of type Points or Shapes, is of type {type(layer)}"
+                f"Layer must be of type Points or Shapes, is of type {type(layer)}."
             )
-        if layer.ndim < layer.ndim - 1:
+        if layer.ndim < parent.data(Qt.UserRole + 2).ndim - 1:
             raise ValueError(
-                "layer must not be more than one dimension smaller than parent item layer."
+                "Layer must not be more than one dimension smaller than parent item layer."
             )
 
         self._parent = parent
         self._indices = self._extract_indices()
         self._ts_data = self._extract_ts_data()
-        self._pl_ec = None
-        self._pil_ec = None
+        self._layer_ec = None
+        self._parent_layer_ec = None
 
         self._connect_callbacks()
 
@@ -280,12 +280,12 @@ class SelectionLayerItem(LayerItem):
         """
         Connect event callbacks.
         """
-        self._pl_ec = self._layer.events.data.connect(
+        self._layer_ec = self._layer.events.data.connect(
             lambda event: self.updateTSIndices()
         )
-        self._pil_ec = self._parent.data(Qt.UserRole + 2).events.data.connect(
-            lambda event: self.updateTSData()
-        )
+        self._parent_layer_ec = self._parent.data(
+            Qt.UserRole + 2
+        ).events.data.connect(lambda event: self.updateTSData())
 
     def _extract_indices(self) -> List[Tuple[Any, ...]]:
         """
@@ -348,7 +348,7 @@ class SelectionLayerItem(LayerItem):
         Update the stored time series indices and if the indices changed time series data.
         """
         new_indices = self._extract_indices()
-        if not self._indices or not np.array_equal(new_indices, self._indices):
+        if not self._indices or self._indices != new_indices:
             self._indices = new_indices
             self.updateTSData()
 
@@ -357,9 +357,7 @@ class SelectionLayerItem(LayerItem):
         Update the stored time series data.
         """
         self._ts_data = self._extract_ts_data()
-        model = self.model()
-        if model:
-            model.dataChanged.emit(self.index(), self.index())
+        self.emitDataChanged()
 
 
 class LivePlotItem(QtGui.QStandardItem):
