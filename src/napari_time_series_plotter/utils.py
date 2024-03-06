@@ -166,8 +166,9 @@ def shape_to_ts_indices(
 ) -> Tuple[Any, ...]:
     """Transform a shapes face or edges to time series indices for a given layer.
 
-    Shape data must be of same or bigger dimensionality as layer or maximal one smaller.
-    The returned index will always be one dimension (t) short.
+    Shape data must be of same or bigger dimensionality as layer or maximal one smaller,
+    as the returned indices include the full first dimension (t).
+    Shape data with less dimensions or non-uniplanar shapes will raise an error.
 
     Parameters
     ----------
@@ -182,10 +183,11 @@ def shape_to_ts_indices(
 
     Returns
     ------
-    ts_indices : tuple of np.ndarray
-        Tuple with same number of allements as layer.ndim - 1. Each element is
-        an array with the same number of elemnts (number of face voxels) encoding
-        the face voxel positions.
+    ts_indices : tuple of tuples
+        Indices in form of a nested tuple with layer.ndim elements.
+        The first element is a slice over the full first dimension.
+        The following tuples have the same number of elements encoding
+        voxel positions.
 
     Raises
     ------
@@ -224,27 +226,27 @@ def shape_to_ts_indices(
 
     # determine y/x indices from vertices
     if filled:
-        indices = polygon(
+        raw_idx = polygon(
             vertices[:, 0], vertices[:, 1], layer.data.shape[-2:]
         )
     else:
         vertices = np.round(
             np.clip(vertices, 0, np.asarray(layer.data.shape[-2:]) - 1)
         ).astype(int)
-        indices = [[], []]
+        raw_idx = [[], []]
         for v1, v2 in zip_longest(
             vertices, vertices[1:], fillvalue=vertices[0]
         ):
             y, x = line(*v1, *v2)
-            indices[0].extend(y[:-1])
-            indices[1].extend(x[:-1])
+            raw_idx[0].extend(y[:-1])
+            raw_idx[1].extend(x[:-1])
 
     # drop duplicate indices
-    clean_indices = tuple(indices)  # tuple(np.unique(indices, axis=0))
+    cleaned_idx = tuple(map(tuple, np.unique(raw_idx, axis=0)))
 
     # expand indices to full dimensions
-    exp = tuple(np.repeat(val, len(clean_indices[0]), axis=0).T)
-    ts_indices = (slice(None),) + exp + clean_indices
+    exp = tuple(np.repeat(val, len(cleaned_idx[0]), axis=0).T)
+    ts_indices = (slice(None),) + exp + cleaned_idx
 
     return ts_indices
 
