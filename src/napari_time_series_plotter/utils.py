@@ -221,6 +221,7 @@ def shape_to_ts_indices(
             raise ValueError("Shape data must not be collinear.")
         else:
             vertices, _ = shape_utils.triangulate_ellipse(tdata[:, -2:])
+            vertices = vertices[1:]
     else:
         vertices = tdata[:, -2:]
 
@@ -237,12 +238,12 @@ def shape_to_ts_indices(
         for v1, v2 in zip_longest(
             vertices, vertices[1:], fillvalue=vertices[0]
         ):
-            y, x = line(*v1, *v2)
+            y, x = line(*v2, *v1)
             raw_idx[0].extend(y[:-1])
             raw_idx[1].extend(x[:-1])
 
     # drop duplicate indices
-    cleaned_idx = tuple(map(tuple, np.unique(raw_idx, axis=0)))
+    cleaned_idx = tuple(map(tuple, raw_idx))  # np.unique(raw_idx, axis=0)))
 
     # expand indices to full dimensions
     exp = tuple(np.repeat(val, len(cleaned_idx[0]), axis=0).T)
