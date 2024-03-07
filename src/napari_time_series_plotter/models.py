@@ -177,6 +177,7 @@ class SourceLayerItem(LayerItem):
 
     def __init__(self, layer: napari.layers.Image, *args, **kwargs) -> None:
         super().__init__(layer, *args, **kwargs)
+        self.setCheckState(Qt.Checked)
 
     def type(self) -> int:
         """
@@ -371,17 +372,18 @@ class LivePlotItem(QtGui.QStandardItem):
 
     def _extract_ts_data(self) -> List[npt.NDArray]:
         """
-        Extract time sereis data from all selected source layers.
+        Extract time series data from all selected source layers.
         """
         model = self.model()
         ts_data = []
-        if model and self.cpos.size != 0:
+        cpos = self._cpos
+        if model and len(cpos) != 0:
             for row in range(model.rowCount()):
                 item = model.item(row, 0)
                 if item.data() != "LivePlot" and item.isChecked():
                     source_layer = item.data(Qt.UserRole + 2)
-                    cpos = np.expand_dims(self.cpos, axis=0)
-                    idx = points_to_ts_indices(cpos, source_layer)
+                    layer_cpos = np.expand_dims(cpos, axis=0)
+                    idx = points_to_ts_indices(layer_cpos, source_layer)
                     if idx:
                         data = source_layer.data[idx[0]]
                         ts_data.append(data)
@@ -405,29 +407,19 @@ class LivePlotItem(QtGui.QStandardItem):
         """
         return QtGui.QStandardItem.UserType + 3
 
-    @property
     def cpos(self) -> npt.NDArray:
         """
         Return cpos.
         """
         return self._cpos
 
-    @cpos.setter
-    def cpos(self, coords: npt.NDArray):
+    def setCpos(self, coords: npt.ArrayLike):
         """
         Set cpos to coords and update time series data.
         """
         self._cpos = coords
-        self.updateTSData()
-
-    def updateTSData(self):
-        """
-        Update the stored time series data.
-        """
         self._ts_data = self._extract_ts_data()
-        model = self.model()
-        if model is not None:
-            model.dataChanged.emit(self.index(), self.index())
+        self.emitDataChanged()
 
 
 class LayerSelectionModel(QtGui.QStandardItemModel):
@@ -492,6 +484,51 @@ class LayerSelectionModel(QtGui.QStandardItemModel):
         self._layer_list.events.inserted.connect(self._layer_inserted_callback)
         self._layer_list.events.removed.connect(self._layer_removed_callback)
         napari_viewer.mouse_move_callbacks.append(self._mouse_move_callback)
+
+    def _init_data(self, layer_list) -> None:
+        """Initiate model items from layer_list.
+
+        The model is cleared and filled with new items derived from the self.layer_list.
+        Only non rgb Image layers of ndim > 2 are valid as top level items. Items for
+        Points and Shapes layers are appended to each top level item.
+
+        Parameters
+        ----------
+        layer_list : napari.components.layerlist.LayerList
+            Napari LayerList containing the layers of the napari main viewer.
+        """
+        self.blockSignals(True)
+        self.clear()
+        # initialize item for live plotting
+        live_plot = LivePlotItem()
+        self._layer_list.events.removed.connect(
+            lambda event: live_plot.updateTSData()
+        )
+
+        # initialize items for source and selection layres
+        source_items = []
+        selection_layers = []
+        for layer in layer_list:
+            if (
+                layer._type_string == "image"
+                and layer.ndim > 2
+                and not layer.rgb
+            ):
+                source_items.append(SourceLayerItem(layer))
+            elif layer._type_string in ["points", "shapes"]:
+                selection_layers.append(layer)
+
+        for item in source_items:
+            item.appendRows(
+                [
+                    SelectionLayerItem(layer, item)
+                    for layer in selection_layers
+                    if layer.ndim >= item.data(role=Qt.UserRole + 2).ndim - 1
+                ][::-1]
+            )
+        self.insertColumn(0, [*source_items[::-1], live_plot])
+        self.blockSignals(False)
+        self.dataChanged.emit(QModelIndex(), QModelIndex())
 
     def _layer_inserted_callback(
         self, event: napari.utils.events.Event
@@ -576,52 +613,7 @@ class LayerSelectionModel(QtGui.QStandardItemModel):
         if "Shift" in event.modifiers:
             items = self.findItems("LivePlot")
             if items:
-                items[0].cpos = np.floor(viewer.cursor.position).astype(int)
-
-    def _init_data(self, layer_list) -> None:
-        """Initiate model items from layer_list.
-
-        The model is cleared and filled with new items derived from the self.layer_list.
-        Only non rgb Image layers of ndim > 2 are valid as top level items. Items for
-        Points and Shapes layers are appended to each top level item.
-
-        Parameters
-        ----------
-        layer_list : napari.components.layerlist.LayerList
-            Napari LayerList containing the layers of the napari main viewer.
-        """
-        self.blockSignals(True)
-        self.clear()
-        # initialize item for live plotting
-        live_plot = LivePlotItem()
-        self._layer_list.events.removed.connect(
-            lambda event: live_plot.updateTSData()
-        )
-
-        # initialize items for source and selection layres
-        source_items = []
-        selection_layers = []
-        for layer in layer_list:
-            if (
-                layer._type_string == "image"
-                and layer.ndim > 2
-                and not layer.rgb
-            ):
-                source_items.append(SourceLayerItem(layer))
-            elif layer._type_string in ["points", "shapes"]:
-                selection_layers.append(layer)
-
-        for item in source_items:
-            item.appendRows(
-                [
-                    SelectionLayerItem(layer, item)
-                    for layer in selection_layers
-                    if layer.ndim >= item.data(role=Qt.UserRole + 2).ndim - 1
-                ][::-1]
-            )
-        self.insertColumn(0, [*source_items[::-1], live_plot])
-        self.blockSignals(False)
-        self.dataChanged.emit(QModelIndex(), QModelIndex())
+                items[0].setCpos = np.floor(viewer.cursor.position).astype(int)
 
     @property
     def tsData(self) -> Dict[str, npt.NDArray]:
