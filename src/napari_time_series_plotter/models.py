@@ -364,8 +364,8 @@ class SelectionLayerItem(LayerItem):
 class LivePlotItem(QtGui.QStandardItem):
     def __init__(self):
         super().__init__()
-        self._cpos = np.array([])
-        self._ts_data = self._extract_ts_data()
+        self._cpos = ()
+        self._ts_data = []
 
         self.setEditable(False)
         self.setCheckable(False)
@@ -398,7 +398,7 @@ class LivePlotItem(QtGui.QStandardItem):
         elif role == Qt.UserRole + 4:
             return self._ts_data
         elif role == Qt.UserRole + 5:
-            return "LivePlot_layer"
+            return "LivePlot"
         return super().data(role)
 
     def type(self) -> int:
@@ -407,19 +407,27 @@ class LivePlotItem(QtGui.QStandardItem):
         """
         return QtGui.QStandardItem.UserType + 3
 
-    def cpos(self) -> npt.NDArray:
+    def cpos(self) -> Tuple[float]:
         """
         Return cpos.
         """
         return self._cpos
 
-    def setCpos(self, coords: npt.ArrayLike):
+    def setCpos(self, coords: Tuple[float]):
         """
         Set cpos to coords and update time series data.
         """
-        self._cpos = coords
-        self._ts_data = self._extract_ts_data()
-        self.emitDataChanged()
+        if self._cpos != coords:
+            self._cpos = coords
+            self.updateTSData()
+
+    def updateTSData(self):
+        """
+        Update time series data.
+        """
+        if self._cpos and self.model():
+            self._ts_data = self._extract_ts_data()
+            self.emitDataChanged()
 
 
 class LayerSelectionModel(QtGui.QStandardItemModel):
@@ -501,9 +509,6 @@ class LayerSelectionModel(QtGui.QStandardItemModel):
         self.clear()
         # initialize item for live plotting
         live_plot = LivePlotItem()
-        self._layer_list.events.removed.connect(
-            lambda event: live_plot.updateTSData()
-        )
 
         # initialize items for source and selection layres
         source_items = []
@@ -526,7 +531,7 @@ class LayerSelectionModel(QtGui.QStandardItemModel):
                     if layer.ndim >= item.data(role=Qt.UserRole + 2).ndim - 1
                 ][::-1]
             )
-        self.insertColumn(0, [*source_items[::-1], live_plot])
+        self.insertColumn(0, [live_plot, *source_items[::-1]])
         self.blockSignals(False)
         self.dataChanged.emit(QModelIndex(), QModelIndex())
 
@@ -555,8 +560,8 @@ class LayerSelectionModel(QtGui.QStandardItemModel):
                 and llitem.ndim >= layer.ndim - 1
             ]
             item.insertColumn(0, child_items)
-            self.insertRow(0, item)
-            self.dataChanged.emit(item.index(), item.index())
+            self.insertRow(1, item)
+            self.item(0).updateTSData()
         elif layer._type_string in ["points", "shapes"]:
             for row in range(self.rowCount()):
                 item = self.item(row, 0)
@@ -568,7 +573,7 @@ class LayerSelectionModel(QtGui.QStandardItemModel):
                         0,
                         SelectionLayerItem(layer, item),
                     )
-            self.dataChanged.emit(item.index(), item.index())
+            self.item(0).updateTSData()
 
     def _layer_removed_callback(
         self, event: napari.utils.events.Event
@@ -587,14 +592,17 @@ class LayerSelectionModel(QtGui.QStandardItemModel):
         """
         layer = event.value
         if layer._type_string == "image":
-            self.removeRow(self.findItems(layer.name)[0].index().row())
+            items = self.findItems(layer.name)
+            if items:
+                self.removeRow(items[0].index().row())
+                self.item(0).updateTSData()
         elif layer._type_string in ["points", "shapes"]:
             for row in range(self.rowCount()):
                 item = self.item(row, 0)
                 if item.hasChildren():
                     for child in item.findChildren(layer.name):
                         item.removeRow(child.index().row())
-        self.dataChanged.emit(QModelIndex(), QModelIndex())
+            self.item(0).updateTSData()
 
     def _mouse_move_callback(
         self, viewer: napari.Viewer, event: napari.utils.events.Event
@@ -611,9 +619,8 @@ class LayerSelectionModel(QtGui.QStandardItemModel):
             Napari event originating from the layer list or subobjects.
         """
         if "Shift" in event.modifiers:
-            items = self.findItems("LivePlot")
-            if items:
-                items[0].setCpos = np.floor(viewer.cursor.position).astype(int)
+            cpos = tuple(np.floor(viewer.cursor.position).astype(int))
+            self.item(0).setCpos(cpos)
 
     @property
     def tsData(self) -> Dict[str, npt.NDArray]:

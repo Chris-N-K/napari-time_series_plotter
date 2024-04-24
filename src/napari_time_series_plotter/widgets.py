@@ -156,6 +156,7 @@ class TimeSeriesMPLWidget(BaseNapariMPLWidget):
         """
         If _model contains time series data draw it as line graph otherwise draw info text.
         """
+        # TODO: add redraw for liveplot after uncheck
         with mplstyle.context(self.napari_theme_style_sheet):
             data = self._model.tsData
             if data:

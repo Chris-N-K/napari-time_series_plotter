@@ -246,7 +246,7 @@ def shape_to_ts_indices(
     cleaned_idx = tuple(map(tuple, raw_idx))  # np.unique(raw_idx, axis=0)))
 
     # expand indices to full dimensions
-    exp = tuple(np.repeat(val, len(cleaned_idx[0]), axis=0).T)
+    exp = tuple(map(tuple, np.repeat(val, len(cleaned_idx[0]), axis=0).T))
     ts_indices = (slice(None),) + exp + cleaned_idx
 
     return ts_indices
